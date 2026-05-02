@@ -1,0 +1,53 @@
+# .github/workflows/sync-full-history.yml
+name: 全量历史同步 android16-6.12-lts
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # 每天 UTC 0 点自动运行
+  workflow_dispatch:        # 支持手动触发
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300   # 5 小时超时保护
+
+    steps:
+      - name: 完整同步 android16-6.12-lts 分支（所有历史）
+        env:
+          UPSTREAM: https://android.googlesource.com/kernel/common.git
+          BRANCH: android16-6.12-lts
+          TARGET: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          set -e
+
+          # ---------- 修改点 ----------
+          git config --global user.name "Guxin12"
+          git config --global user.email "2452148391@qq.com"
+          # ----------------------------
+
+          # 检查目标仓库是否已有分支
+          if git ls-remote --heads "$TARGET" "$BRANCH" | grep -q "$BRANCH"; then
+            echo "分支 ${BRANCH} 已存在，进行全量历史同步..."
+
+            # 裸仓库克隆目标分支（占用空间最小）
+            git clone --bare --single-branch --branch "$BRANCH" "$TARGET" kernel.git
+            cd kernel.git
+
+            # 添加上游并强制拉取完整历史
+            git remote add upstream "$UPSTREAM"
+            git fetch --force --no-tags upstream "+refs/heads/${BRANCH}:refs/heads/${BRANCH}"
+
+            # 强制推送覆盖目标分支（携带所有历史对象）
+            git push --force --no-tags origin "$BRANCH"
+          else
+            echo "分支 ${BRANCH} 不存在，从上游创建完整历史分支..."
+
+            # 新建裸仓库，从上游直接抓取完整历史
+            git init --bare kernel.git
+            cd kernel.git
+            git remote add upstream "$UPSTREAM"
+            git fetch --no-tags upstream "+refs/heads/${BRANCH}:refs/heads/${BRANCH}"
+
+            # 推送到目标仓库
+            git push "$TARGET" "$BRANCH"
+          fi
